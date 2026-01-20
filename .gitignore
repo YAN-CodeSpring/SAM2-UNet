@@ -1,0 +1,47 @@
+# 忽略云服务器根目录下的所有其他文件夹（如果vscode从/root打开）
+/../
+!/root/SAM2-UNet-main/
+
+# 忽略Python缓存和临时文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 忽略模型权重和数据（如果不需要版本控制）
+*.pth
+*.pt
+*.h5
+*.pkl
+data/
+inputs/
+outputs/
+*.png
+*.jpg
+*.jpeg
+
+# 忽略IDE配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 忽略日志
+*.log
