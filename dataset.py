@@ -225,3 +225,6 @@ class TestDataset:
         with open(path, 'rb') as f:
             img = Image.open(f)
             return img.convert('L')
+
+# 在dataset.py末尾添加（如果没有）
+__all__ = ['FullDataset', 'TestDataset', 'Resize', 'ToTensor', 'Normalize', 'RandomHorizontalFlip', 'RandomVerticalFlip']
