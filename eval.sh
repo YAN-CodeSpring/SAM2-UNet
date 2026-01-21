@@ -1,4 +1,4 @@
 python eval.py \
---dataset_name "<set your dataset name here>" \
---pred_path "<set your prediction result path here>" \
---gt_path "<set your ground truth path here>"
+--dataset_name "busi-epoch20" \
+--pred_path "/root/SAM2-UNet-main/test_busi_small" \
+--gt_path "/root/autodl-tmp/busi/masks"

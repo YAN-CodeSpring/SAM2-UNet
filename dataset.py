@@ -119,10 +119,10 @@ class FullDataset(Dataset):
         print(f"成功加载 {len(self.images)} 张图像")
         print(f"成功匹配 {len(self.gts)} 个mask文件")
         if len(self.images) > 0:
-            print(f"示例图像路径：{self.images[0]}")
-            print(f"示例图像名：{img_name_list[0]}")
+            print(f"示例图像路径：{self.images[700]}")
+            print(f"示例图像名：{img_name_list[700]}")
         if len(self.gts) > 0:
-            print(f"示例mask路径：{self.gts[0]}")
+            print(f"示例mask路径：{self.gts[700]}")
 
     def __getitem__(self, idx):
         image = self.rgb_loader(self.images[idx])
@@ -145,24 +145,24 @@ class FullDataset(Dataset):
         with open(path, 'rb') as f:
             img = Image.open(f)
             return img.convert('L')
-            
+
 
 class TestDataset:
     def __init__(self, image_root, gt_root, size):
-        # ========== 1. 加载图像路径并按图像名排序 ==========
+        # ========== 1. 加载图像路径并按图像名排序（和FullDataset一致） ==========
         self.images = []
         img_name_list = []
         for f in os.listdir(image_root):
             if f.endswith('.jpg') or f.endswith('.png'):
                 self.images.append(os.path.join(image_root, f))
                 img_name_list.append(f.replace('.png', '').replace('.jpg', ''))
-        # 按图像名排序
+        # 按图像名排序，保证和训练集顺序一致
         sorted_pairs = sorted(zip(img_name_list, self.images))
         img_name_list, self.images = zip(*sorted_pairs)
         self.images = list(self.images)
         img_name_list = list(img_name_list)
 
-        # ========== 2. 匹配mask ==========
+        # ========== 2. 匹配mask（适配0/1/2子文件夹 + _mask后缀） ==========
         self.gts = []
         img_name_to_mask = {}
         for class_dir in os.listdir(gt_root):
@@ -189,7 +189,39 @@ class TestDataset:
                                  [0.229, 0.224, 0.225])
         ])
         self.gt_transform = transforms.ToTensor()
-        self.size = len(self.images)
-        self.index = 0
+        self.size = len(self.images)  # 测试集总数量
+        self.index = 0  # 遍历索引，初始为0
 
-    # 其余 load_data、rgb_loader、binary_loader 逻辑不变
+    # ========== 补全缺失的 load_data 方法（核心） ==========
+    def load_data(self):
+        # 检查索引是否越界（避免测试集遍历完后报错）
+        if self.index >= self.size:
+            raise StopIteration("测试集数据已遍历完毕！")
+        
+        # 加载当前索引的图像
+        image = self.rgb_loader(self.images[self.index])
+        image = self.transform(image).unsqueeze(0)  # 增加batch维度 (1, 3, H, W)
+
+        # 加载当前索引的mask
+        gt = self.binary_loader(self.gts[self.index])
+        gt = np.array(gt)  # 转为numpy数组，方便后续评估
+
+        # 提取图像名称（用于保存结果）
+        name = self.images[self.index].split('/')[-1]
+
+        # 索引+1，准备加载下一个样本
+        self.index += 1
+        
+        return image, gt, name
+
+    # ========== 补全缺失的 rgb_loader 方法 ==========
+    def rgb_loader(self, path):
+        with open(path, 'rb') as f:
+            img = Image.open(f)
+            return img.convert('RGB')
+
+    # ========== 补全缺失的 binary_loader 方法 ==========
+    def binary_loader(self, path):
+        with open(path, 'rb') as f:
+            img = Image.open(f)
+            return img.convert('L')
