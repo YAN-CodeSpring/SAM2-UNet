@@ -10,7 +10,7 @@ python bcss_train.py \
 --val_mask_path "/root/autodl-tmp/BCSS/BCSS_224/val_mask" \
 --save_path "/root/SAM2-UNet-main/output_bcss_checkpoints1" \
 --log_path "/root/SAM2-UNet-main/output_bcss_checkpoints1/train_log.csv" \
---epoch 50 \
---lr 0.001 \
---batch_size 8 \
+--epoch 25 \
+--lr 0.0002 \
+--batch_size 64 \
 --weight_decay 5e-4
