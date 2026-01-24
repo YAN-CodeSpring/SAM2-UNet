@@ -23,6 +23,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+wandb/
 
 # 忽略模型权重和数据（如果不需要版本控制）
 *.pth
