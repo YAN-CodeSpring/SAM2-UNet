@@ -7,30 +7,11 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-# BCSS 数据集 22 个类别的完整映射字典 (0-21)
+# BCSS 数据集 3 个类别的完整映射字典 (0-2)
 BCSS_CLASSES = {
     0: "Outside_ROI (非感兴趣区域)",
     1: "Tumor (肿瘤)",
     2: "Stroma (基质)",
-    3: "Lymphocytic_infiltrate (淋巴细胞浸润)",
-    4: "Necrosis_or_Debris (坏死或碎片)",
-    5: "Glandular_secretions (腺体分泌物)",
-    6: "Blood (血液)",
-    7: "Exclude (排除区域)",
-    8: "Metaplasia_NOS (化生)",
-    9: "Fat (脂肪)",
-    10: "Plasma_cells (浆细胞)",
-    11: "Other_immune_infiltrate (其他免疫细胞浸润)",
-    12: "Mucoid_material (粘液性物质)",
-    13: "Normal_acinus_or_duct (正常腺泡或导管)",
-    14: "Lymphatics (淋巴管)",
-    15: "Undetermined (未定区域)",
-    16: "Nerve (神经)",
-    17: "Skin_adnexa (皮肤附件)",
-    18: "Blood_vessel (血管)",
-    19: "Angioinvasion (血管浸润)",
-    20: "DCIS (导管原位癌)",
-    21: "Other (其他)"
 }
 
 def analyze_masks(mask_path, output_txt):

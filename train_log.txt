@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/root/SAM2-UNet-main/train.py", line 10, in <module>
-    from dataset import FullDataset
-  File "/root/SAM2-UNet-main/dataset.py", line 124
-    return img.convert('RGB')
-IndentationError: unexpected indent
