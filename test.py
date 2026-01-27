@@ -27,23 +27,29 @@ model.load_state_dict(torch.load(args.checkpoint), strict=True)
 model.eval()
 model.cuda()
 os.makedirs(args.save_path, exist_ok=True)
+
+# 二值化阈值（0.5对应255的127.5）
+BIN_THRESHOLD = 0.5
+
 for i in range(test_loader.size):
     with torch.no_grad():
         image, gt, name = test_loader.load_data()
         gt = np.asarray(gt, np.float32)
         image = image.to(device)
         res, _, _ = model(image)
-        # fix: duplicate sigmoid
-        # res = torch.sigmoid(res)
+        
+        # 1. 上采样到gt尺寸（保持和原代码一致）
         res = F.upsample(res, size=gt.shape, mode='bilinear', align_corners=False)
-        res = res.sigmoid().data.cpu()
-        res = res.numpy().squeeze()
-        res = (res - res.min()) / (res.max() - res.min() + 1e-8)
-        res = (res * 255).astype(np.uint8)
-        # If you want to binarize the prediction results, please uncomment the following three lines. 
-        # Note that this action will affect the calculation of evaluation metrics.
-        # lambda = 0.5
-        # res[res >= int(255 * lambda)] = 255
-        # res[res < int(255 * lambda)] = 0
-        print("Saving " + name)
+        
+        # 2. sigmoid归一化到0-1（避免重复sigmoid）
+        res = torch.sigmoid(res).data.cpu().numpy().squeeze()
+        
+        # 3. 强制二值化（0或1，和mask尺度对齐）
+        res = (res >= BIN_THRESHOLD).astype(np.uint8)
+        
+        # 4. 转换为0-255的二值图（方便保存为png，和评估时的mask统一尺度）
+        res = res * 255
+        
+        print(f"Saving {name} | pred像素值范围：[{res.min()}, {res.max()}]")
+        # 保存为png（仅0/255二值图）
         imageio.imsave(os.path.join(args.save_path, name[:-4] + ".png"), res)
