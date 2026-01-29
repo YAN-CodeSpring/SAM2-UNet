@@ -12,9 +12,9 @@ TRAIN_MASK="/root/autodl-tmp/BCSS/BCSS_224/train_mask_binary"
 VAL_IMG="/root/autodl-tmp/BCSS/BCSS_224/val"
 VAL_MASK="/root/autodl-tmp/BCSS/BCSS_224/val_mask_binary"
 
-SAVE_PATH="/root/SAM2-UNet-main/output9_checkpoints"
+SAVE_PATH="/root/SAM2-UNet-main/output10_checkpoints"
 # [恢复] CSV 日志保存路径
-LOG_PATH="/root/SAM2-UNet-main/output9_checkpoints/train_log.csv"
+LOG_PATH="/root/SAM2-UNet-main/output10_checkpoints/train_log.csv"
 
 CUDA_VISIBLE_DEVICES="0" \
 python train.py \
@@ -25,7 +25,7 @@ python train.py \
     --val_mask_path "$VAL_MASK" \
     --save_path "$SAVE_PATH" \
     --log_path "$LOG_PATH" \
-    --epoch 30 \
+    --epoch 25 \
     --lr 0.0001 \
     --batch_size 64 \
     --wandb_project "BCSS-SAM2-UNet-Binary"
