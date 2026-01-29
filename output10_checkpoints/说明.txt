@@ -1,1 +1,1 @@
-eval.
+这是加入attention gate之后的结果，结果反而下降了。
