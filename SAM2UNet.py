@@ -3,11 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sam2.build_sam import build_sam2
 
-
-
+# ==================== 1. 基础组件 (保持不变) ====================
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
-
     def __init__(self, in_channels, out_channels, mid_channels=None):
         super().__init__()
         if not mid_channels:
@@ -24,180 +22,122 @@ class DoubleConv(nn.Module):
     def forward(self, x):
         return self.double_conv(x)
 
-class MultiResBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, alpha=1.67):
-        super(MultiResBlock, self).__init__()
-        
-        # 计算各分支的通道数 (参考原论文公式)
-        W = out_channels * alpha
-        # 原论文近似分配比例: 1/6, 1/3, 1/2
-        self.out_c1 = int(W * 0.167)
-        self.out_c2 = int(W * 0.333)
-        self.out_c3 = int(W * 0.5)
-        
-        # 修正总通道数误差（确保拼接后等于 out_channels 附近，这里我们最后会接个conv调整）
-        self.total_c = self.out_c1 + self.out_c2 + self.out_c3
-
-        # 分支1: 3x3
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels, self.out_c1, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(self.out_c1),
-            nn.ReLU(inplace=True)
-        )
-        
-        # 分支2: 3x3 -> 3x3 (等效 5x5)
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(self.out_c1, self.out_c2, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(self.out_c2),
-            nn.ReLU(inplace=True)
-        )
-        
-        # 分支3: 3x3 -> 3x3 -> 3x3 (等效 7x7)
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(self.out_c2, self.out_c3, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(self.out_c3),
-            nn.ReLU(inplace=True)
-        )
-        
-        # 残差连接 (Shortcut)
-        self.shortcut = nn.Sequential(
-            nn.Conv2d(in_channels, self.total_c, kernel_size=1, bias=False),
-            nn.BatchNorm2d(self.total_c)
-        )
-        
-        # 最后的融合层 (确保输出通道数对齐)
-        self.final_bn = nn.BatchNorm2d(self.total_c)
-        self.final_relu = nn.ReLU(inplace=True)
-        
-        # 如果计算出的通道数和目标不一致，用1x1卷积修正
-        self.adjust_conv = None
-        if self.total_c != out_channels:
-             self.adjust_conv = nn.Conv2d(self.total_c, out_channels, kernel_size=1)
-
-    def forward(self, x):
-        # Shortcut
-        res = self.shortcut(x)
-        
-        # Multi-scale features
-        x1 = self.conv1(x)
-        x2 = self.conv2(x1)
-        x3 = self.conv3(x2)
-        
-        # 拼接
-        out = torch.cat([x1, x2, x3], dim=1)
-        out = self.final_bn(out)
-        
-        # 残差相加
-        out = out + res
-        out = self.final_relu(out)
-        
-        # 通道对齐
-        if self.adjust_conv:
-            out = self.adjust_conv(out)
-            
-        return out
-    
-
-class MultiResUp(nn.Module):
-    """Upscaling -> Concat -> MultiResBlock (代替原来的DoubleConv)"""
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        
-        # 这里你可以选择是否保留之前的 CoordAttention，如果想纯粹测MultiRes，可以注释掉下面这行
-        # self.ca = CoordAtt(out_channels, out_channels) 
-        
-        # 【核心替换】：用 MultiResBlock 替换 DoubleConv
-        # 输入通道是 in_channels (拼接后的), 输出是 out_channels
-        self.conv = MultiResBlock(in_channels, out_channels)
-
-    def forward(self, x1, x2):
-        x1 = self.up(x1)
-        
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2])
-        
-        # 拼接
-        x = torch.cat([x2, x1], dim=1)
-        
-        # 多尺度卷积提取
-        x = self.conv(x)
-        
-        # 如果你保留了 CA，就在这里用
-        # x = self.ca(x)
-        
-        return x
 
 class Up(nn.Module):
     """Upscaling then double conv"""
-
     def __init__(self, in_channels, out_channels):
         super().__init__()
-
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
-        # input is CHW
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
-
         x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
                         diffY // 2, diffY - diffY // 2])
-        # if you have padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
         x = torch.cat([x2, x1], dim=1)
         return self.conv(x)
 
-### 下面这个是新加的
-# [新增模块] 带有 Attention 的上采样模块
-class AttentionUp(nn.Module):
-    """Upscaling -> Attention Gate -> Concat -> Double Conv"""
+
+# ==================== 2. CA 模块所需组件 (补充定义) ====================
+class h_sigmoid(nn.Module):
+    def __init__(self, inplace=True):
+        super(h_sigmoid, self).__init__()
+        self.relu = nn.ReLU6(inplace=inplace)
+
+    def forward(self, x):
+        return self.relu(x + 3) / 6
+
+class h_swish(nn.Module):
+    def __init__(self, inplace=True):
+        super(h_swish, self).__init__()
+        self.sigmoid = h_sigmoid(inplace=inplace)
+
+    def forward(self, x):
+        return x * self.sigmoid(x)
+
+# ==================== 3. Coordinate Attention (你的代码) ====================
+class CoordAtt(nn.Module):
+    def __init__(self, inp, oup, groups=32):
+        super(CoordAtt, self).__init__()
+        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
+        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
+
+        mip = max(8, inp // groups)
+
+        self.conv1 = nn.Conv2d(inp, mip, kernel_size=1, stride=1, padding=0)
+        self.bn1 = nn.BatchNorm2d(mip)
+        self.conv2 = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
+        self.conv3 = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
+        self.relu = h_swish()
+
+    def forward(self, x):
+        identity = x
+        n,c,h,w = x.size()
+        x_h = self.pool_h(x)
+        x_w = self.pool_w(x).permute(0, 1, 3, 2)
+
+        y = torch.cat([x_h, x_w], dim=2)
+        y = self.conv1(y)
+        y = self.bn1(y)
+        y = self.relu(y) 
+        x_h, x_w = torch.split(y, [h, w], dim=2)
+        x_w = x_w.permute(0, 1, 3, 2)
+
+        x_h = self.conv2(x_h).sigmoid()
+        x_w = self.conv3(x_w).sigmoid()
+        x_h = x_h.expand(-1, -1, h, w)
+        x_w = x_w.expand(-1, -1, h, w)
+
+        y = identity * x_w * x_h
+
+        return y
+
+# ==================== 4. 集成 CA 的 Up 模块 (搭积木) ====================
+class UpWithCA(nn.Module):
+    """
+    结构: Upsampling -> Concat -> DoubleConv (Decoder Block) -> CoordAttention
+    CA 放在 DoubleConv 输出之后，即“Decoder Block 输出端”
+    这也是下一层“上采样模块的输入端”
+    """
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        # 保持和你原来的 Up 一样的上采样
+        # 1. 常规的 U-Net Up 操作
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        
-        # 计算 Attention 参数
-        # in_channels 是拼接后的总通道数 (例如 128)
-        # 所以 gate (深层) 和 x (跳跃连接) 各占一半
-        F_g = in_channels // 2
-        F_l = in_channels // 2
-        F_int = F_g // 2  # 中间层通道数，通常减半
-        
-        # 实例化 AG
-        self.ag = Attention_block(F_g, F_l, F_int)
-        
-        # 保持和你原来的 Up 一样的卷积
         self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
+        
+        # 2. 加入 CA 模块
+        # 输入通道是 DoubleConv 的输出通道 (out_channels)
+        self.ca = CoordAtt(out_channels, out_channels)
 
     def forward(self, x1, x2):
-        # x1: 深层特征 (需要上采样)
-        # x2: Skip Connection (浅层特征，包含背景噪声)
+        # x1: 深层特征
+        # x2: Skip Connection
         
-        # 1. 上采样
+        # 上采样
         x1 = self.up(x1)
         
-        # 2. 处理尺寸不匹配 (完全复制你原来的 padding 逻辑)
+        # Padding 对齐
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
         x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
                         diffY // 2, diffY - diffY // 2])
         
-        # 3. [核心修改] 使用 AG 过滤 x2
-        # 用 x1 (Gating Signal) 去看 x2
-        x2 = self.ag(g=x1, x=x2)
-        
-        # 4. 拼接 (此时 x2 已经被净化了)
+        # 拼接
         x = torch.cat([x2, x1], dim=1)
         
-        # 5. 卷积输出
-        return self.conv(x)
+        # Decoder Block (DoubleConv)
+        x = self.conv(x)
+        
+        # 【关键位置】：在 Decoder Block 输出之后加入 CA
+        # 此时的 x 包含了丰富的语义和细节，CA 负责进一步提炼位置信息
+        x = self.ca(x)
+        
+        return x
 
+
+# ==================== 5. 其他辅助模块 (保持不变) ====================
 class Adapter(nn.Module):
     def __init__(self, blk) -> None:
         super(Adapter, self).__init__()
@@ -271,6 +211,7 @@ class RFB_modified(nn.Module):
         return x
 
 
+# ==================== 6. 主网络 (调用 UpWithCA) ====================
 class SAM2UNet(nn.Module):
     def __init__(self, checkpoint_path=None) -> None:
         super(SAM2UNet, self).__init__()    
@@ -303,22 +244,14 @@ class SAM2UNet(nn.Module):
         self.rfb2 = RFB_modified(288, 64)
         self.rfb3 = RFB_modified(576, 64)
         self.rfb4 = RFB_modified(1152, 64)
-
-        # ======= 只需要改这里 =======
-        # 使用 MultiResUp
-        self.up1 = (MultiResUp(128, 64)) 
-        self.up2 = (MultiResUp(128, 64))
-        self.up3 = (MultiResUp(128, 64))
         
-        # 如果需要 up4
-        self.up4 = (MultiResUp(128, 64))
+        # 【核心修改点】使用 UpWithCA 替代 Up
+        # 这样 forward 中的 x = self.up1(...) 时，CA 就会自动作用在 conv 输出之后
+        self.up1 = (UpWithCA(128, 64))
+        self.up2 = (UpWithCA(128, 64))
+        self.up3 = (UpWithCA(128, 64))
+        self.up4 = (UpWithCA(128, 64)) # 如果用不到可以忽略
         
-        # 这里的up123被替换：
-        # self.up1 = (Up(128, 64))
-        # self.up2 = (Up(128, 64))
-        # self.up3 = (Up(128, 64))
-        
-        self.up4 = (Up(128, 64))
         self.side1 = nn.Conv2d(64, 1, kernel_size=1)
         self.side2 = nn.Conv2d(64, 1, kernel_size=1)
         self.head = nn.Conv2d(64, 1, kernel_size=1)
@@ -326,12 +259,17 @@ class SAM2UNet(nn.Module):
     def forward(self, x):
         x1, x2, x3, x4 = self.encoder(x)
         x1, x2, x3, x4 = self.rfb1(x1), self.rfb2(x2), self.rfb3(x3), self.rfb4(x4)
+        
+        # 执行带有 CA 的上采样模块
         x = self.up1(x4, x3)
         out1 = F.interpolate(self.side1(x), scale_factor=16, mode='bilinear')
+        
         x = self.up2(x, x2)
         out2 = F.interpolate(self.side2(x), scale_factor=8, mode='bilinear')
+        
         x = self.up3(x, x1)
         out = F.interpolate(self.head(x), scale_factor=4, mode='bilinear')
+        
         return out, out1, out2
 
 
