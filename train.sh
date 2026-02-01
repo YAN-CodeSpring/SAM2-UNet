@@ -12,9 +12,9 @@ TRAIN_MASK="/root/autodl-tmp/BCSS/BCSS_224/train_mask_binary"
 VAL_IMG="/root/autodl-tmp/BCSS/BCSS_224/val"
 VAL_MASK="/root/autodl-tmp/BCSS/BCSS_224/val_mask_binary"
 
-SAVE_PATH="/root/SAM2-UNet-main/output13_checkpoints"
+SAVE_PATH="/root/SAM2-UNet-main/output14_checkpoints"
 # [恢复] CSV 日志保存路径
-LOG_PATH="/root/SAM2-UNet-main/output13_checkpoints/train_log.csv"
+LOG_PATH="/root/SAM2-UNet-main/output14_checkpoints/train_log.csv"
 
 CUDA_VISIBLE_DEVICES="0" \
 python train.py \

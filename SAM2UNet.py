@@ -40,7 +40,7 @@ class Up(nn.Module):
         return self.conv(x)
 
 
-# ==================== 2. CA 模块组件 ====================
+# ==================== 2. CA 模块组件 (保持不变) ====================
 class h_sigmoid(nn.Module):
     def __init__(self, inplace=True):
         super(h_sigmoid, self).__init__()
@@ -93,45 +93,98 @@ class CoordAtt(nn.Module):
 
         return y
 
+# ==================== [新增] AFF 模块 (你提供的代码) ====================
+class AFF(nn.Module):
+    '''
+    多特征融合 AFF
+    '''
+    def __init__(self, channels=64, r=4):
+        super(AFF, self).__init__()
+        inter_channels = int(channels // r)
 
-# ==================== 3. 核心修改：Pre-Up CA ====================
-class UpWithCA(nn.Module):
+        self.local_att = nn.Sequential(
+            nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(inter_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(channels),
+        )
+
+        self.global_att = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(channels, inter_channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(inter_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(inter_channels, channels, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(channels),
+        )
+
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x, residual):
+        xa = x + residual
+        xl = self.local_att(xa)
+        xg = self.global_att(xa)
+        xlg = xl + xg
+        wei = self.sigmoid(xlg)
+
+        xo = 2 * x * wei + 2 * residual * (1 - wei)
+        return xo
+
+
+# ==================== 3. 核心修改：CA + AFF 融合模块 ====================
+class UpWithCA_AFF(nn.Module):
     """
-    逻辑顺序: CA (提炼) -> Upsample (放大) -> Concat -> Conv
-    这符合你说的: Decoder Block (上一层输出) -> CA -> 上采样 (当前层操作)
+    强强联合逻辑: 
+    1. Pre-Up CA: 先对深层特征做 CA (去噪/定位)
+    2. Upsample:  放大
+    3. AFF Fusion: 用 AFF 替代 cat (软融合)
     """
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
         
-        # CA 放在输入端
-        # in_channels 是拼接后的总数 (例如 128)，所以输入的 x1 只有一半 (64)
-        ca_channels = in_channels // 2
-        self.ca = CoordAtt(ca_channels, ca_channels)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        
+        # 计算单路通道数 (因为 cat 是翻倍，而 AFF 是不翻倍的融合)
+        # 比如 in_channels=128 (代表 skip+deep 的总和), 那么单路就是 64
+        self.branch_channels = in_channels // 2
+        
+        # 1. 定义 CA (作用于深层特征，通道数为 64)
+        self.ca = CoordAtt(self.branch_channels, self.branch_channels)
+        
+        # 2. 定义 AFF (作用于融合阶段，通道数为 64)
+        self.aff = AFF(channels=self.branch_channels)
+        
+        # 3. 定义 DoubleConv
+        # 注意：使用 AFF 后，输出通道数依然是 64 (不像 cat 是 128)
+        # 所以这里的输入通道数必须是 self.branch_channels
+        self.conv = DoubleConv(self.branch_channels, out_channels, self.branch_channels // 2)
 
     def forward(self, x1, x2):
         # x1: 深层特征 (Low Res)
         # x2: Skip Connection (High Res)
         
-        # 1. 【先 CA】: 在特征放大前，先提炼位置信息，抑制背景
-        #    这对应 "Decoder Block -> CA"
+        # 1. 【CA】: 提炼深层特征
         x1 = self.ca(x1)
         
-        # 2. 【后 上采样】: 带着干净的特征去放大
-        #    这对应 "CA -> 上采样"
+        # 2. 【上采样】
         x1 = self.up(x1)
         
-        # 3. 正常拼接卷积
+        # 3. Padding 对齐
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
         x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
                         diffY // 2, diffY - diffY // 2])
-        x = torch.cat([x2, x1], dim=1)
+        
+        # 4. 【AFF 融合】: 替代 torch.cat
+        # x1 是主路(经过处理的深层)，x2 是 residual(浅层 skip)
+        x = self.aff(x1, x2)
+        
+        # 5. 卷积
         return self.conv(x)
 
 
-# ==================== 4. 其他模块 (Adapter, RFB 等) ====================
+# ==================== 4. 其他模块 (保持不变) ====================
 class Adapter(nn.Module):
     def __init__(self, blk) -> None:
         super(Adapter, self).__init__()
@@ -239,11 +292,11 @@ class SAM2UNet(nn.Module):
         self.rfb3 = RFB_modified(576, 64)
         self.rfb4 = RFB_modified(1152, 64)
         
-        # 使用 UpWithCA (CA在输入端)
-        self.up1 = (UpWithCA(128, 64))
-        self.up2 = (UpWithCA(128, 64))
-        self.up3 = (UpWithCA(128, 64))
-        self.up4 = (UpWithCA(128, 64))
+        # 【修改】使用新的 UpWithCA_AFF 模块
+        self.up1 = (UpWithCA_AFF(128, 64))
+        self.up2 = (UpWithCA_AFF(128, 64))
+        self.up3 = (UpWithCA_AFF(128, 64))
+        self.up4 = (UpWithCA_AFF(128, 64))
         
         self.side1 = nn.Conv2d(64, 1, kernel_size=1)
         self.side2 = nn.Conv2d(64, 1, kernel_size=1)
@@ -253,11 +306,9 @@ class SAM2UNet(nn.Module):
         x1, x2, x3, x4 = self.encoder(x)
         x1, x2, x3, x4 = self.rfb1(x1), self.rfb2(x2), self.rfb3(x3), self.rfb4(x4)
         
-        # 此时 x4 会先经过 up1 里的 CA，再上采样，再和 x3 融合
         x = self.up1(x4, x3)
         out1 = F.interpolate(self.side1(x), scale_factor=16, mode='bilinear')
         
-        # 上一层的输出 x (已经融合了特征)，进入 up2 后，会先经过 CA 精修，再上采样
         x = self.up2(x, x2)
         out2 = F.interpolate(self.side2(x), scale_factor=8, mode='bilinear')
         
