@@ -40,7 +40,7 @@ class Up(nn.Module):
         return self.conv(x)
 
 
-# ==================== 2. CA 模块所需组件 (补充定义) ====================
+# ==================== 2. CA 模块组件 ====================
 class h_sigmoid(nn.Module):
     def __init__(self, inplace=True):
         super(h_sigmoid, self).__init__()
@@ -57,7 +57,6 @@ class h_swish(nn.Module):
     def forward(self, x):
         return x * self.sigmoid(x)
 
-# ==================== 3. Coordinate Attention (你的代码) ====================
 class CoordAtt(nn.Module):
     def __init__(self, inp, oup, groups=32):
         super(CoordAtt, self).__init__()
@@ -94,50 +93,45 @@ class CoordAtt(nn.Module):
 
         return y
 
-# ==================== 4. 集成 CA 的 Up 模块 (搭积木) ====================
+
+# ==================== 3. 核心修改：Pre-Up CA ====================
 class UpWithCA(nn.Module):
     """
-    结构: Upsampling -> Concat -> DoubleConv (Decoder Block) -> CoordAttention
-    CA 放在 DoubleConv 输出之后，即“Decoder Block 输出端”
-    这也是下一层“上采样模块的输入端”
+    逻辑顺序: CA (提炼) -> Upsample (放大) -> Concat -> Conv
+    这符合你说的: Decoder Block (上一层输出) -> CA -> 上采样 (当前层操作)
     """
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        # 1. 常规的 U-Net Up 操作
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
         
-        # 2. 加入 CA 模块
-        # 输入通道是 DoubleConv 的输出通道 (out_channels)
-        self.ca = CoordAtt(out_channels, out_channels)
+        # CA 放在输入端
+        # in_channels 是拼接后的总数 (例如 128)，所以输入的 x1 只有一半 (64)
+        ca_channels = in_channels // 2
+        self.ca = CoordAtt(ca_channels, ca_channels)
 
     def forward(self, x1, x2):
-        # x1: 深层特征
-        # x2: Skip Connection
+        # x1: 深层特征 (Low Res)
+        # x2: Skip Connection (High Res)
         
-        # 上采样
+        # 1. 【先 CA】: 在特征放大前，先提炼位置信息，抑制背景
+        #    这对应 "Decoder Block -> CA"
+        x1 = self.ca(x1)
+        
+        # 2. 【后 上采样】: 带着干净的特征去放大
+        #    这对应 "CA -> 上采样"
         x1 = self.up(x1)
         
-        # Padding 对齐
+        # 3. 正常拼接卷积
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
         x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
                         diffY // 2, diffY - diffY // 2])
-        
-        # 拼接
         x = torch.cat([x2, x1], dim=1)
-        
-        # Decoder Block (DoubleConv)
-        x = self.conv(x)
-        
-        # 【关键位置】：在 Decoder Block 输出之后加入 CA
-        # 此时的 x 包含了丰富的语义和细节，CA 负责进一步提炼位置信息
-        x = self.ca(x)
-        
-        return x
+        return self.conv(x)
 
 
-# ==================== 5. 其他辅助模块 (保持不变) ====================
+# ==================== 4. 其他模块 (Adapter, RFB 等) ====================
 class Adapter(nn.Module):
     def __init__(self, blk) -> None:
         super(Adapter, self).__init__()
@@ -211,7 +205,7 @@ class RFB_modified(nn.Module):
         return x
 
 
-# ==================== 6. 主网络 (调用 UpWithCA) ====================
+# ==================== 5. 主网络 ====================
 class SAM2UNet(nn.Module):
     def __init__(self, checkpoint_path=None) -> None:
         super(SAM2UNet, self).__init__()    
@@ -245,12 +239,11 @@ class SAM2UNet(nn.Module):
         self.rfb3 = RFB_modified(576, 64)
         self.rfb4 = RFB_modified(1152, 64)
         
-        # 【核心修改点】使用 UpWithCA 替代 Up
-        # 这样 forward 中的 x = self.up1(...) 时，CA 就会自动作用在 conv 输出之后
+        # 使用 UpWithCA (CA在输入端)
         self.up1 = (UpWithCA(128, 64))
         self.up2 = (UpWithCA(128, 64))
         self.up3 = (UpWithCA(128, 64))
-        self.up4 = (UpWithCA(128, 64)) # 如果用不到可以忽略
+        self.up4 = (UpWithCA(128, 64))
         
         self.side1 = nn.Conv2d(64, 1, kernel_size=1)
         self.side2 = nn.Conv2d(64, 1, kernel_size=1)
@@ -260,16 +253,16 @@ class SAM2UNet(nn.Module):
         x1, x2, x3, x4 = self.encoder(x)
         x1, x2, x3, x4 = self.rfb1(x1), self.rfb2(x2), self.rfb3(x3), self.rfb4(x4)
         
-        # 执行带有 CA 的上采样模块
+        # 此时 x4 会先经过 up1 里的 CA，再上采样，再和 x3 融合
         x = self.up1(x4, x3)
         out1 = F.interpolate(self.side1(x), scale_factor=16, mode='bilinear')
         
+        # 上一层的输出 x (已经融合了特征)，进入 up2 后，会先经过 CA 精修，再上采样
         x = self.up2(x, x2)
         out2 = F.interpolate(self.side2(x), scale_factor=8, mode='bilinear')
         
         x = self.up3(x, x1)
         out = F.interpolate(self.head(x), scale_factor=4, mode='bilinear')
-        
         return out, out1, out2
 
 
