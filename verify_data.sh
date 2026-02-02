@@ -4,8 +4,8 @@
 
 # 请在这里修改你的实际路径
 # 注意：路径如果包含空格，请用引号括起来
-TRAIN_IMG_PATH="/root/autodl-fs/QaTa-COV19-v2/Train Set/Images"
-TRAIN_MASK_PATH="/root/autodl-fs/QaTa-COV19-v2/Train Set/Ground-truths"
+TRAIN_IMG_PATH="/root/autodl-fs/QaTa-COV19-v2/Test Set/Images"
+TRAIN_MASK_PATH="/root/autodl-fs/QaTa-COV19-v2/Test Set/Ground-truths"
 
 # 输出结果保存的txt文件名
 OUTPUT_FILE="train_set_check_result.txt"

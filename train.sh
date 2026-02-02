@@ -5,16 +5,16 @@
 HIERA_PATH="/root/SAM2-UNet-main/sam2_hiera_large.pt"
 
 # 训练集路径
-TRAIN_IMG="/root/autodl-tmp/BCSS/BCSS_224/train"
-TRAIN_MASK="/root/autodl-tmp/BCSS/BCSS_224/train_mask_binary"
+TRAIN_IMG="/root/autodl-fs/QaTa-COV19-v2/Train Set/Images"
+TRAIN_MASK="/root/autodl-fs/QaTa-COV19-v2/Train Set/Ground-truths"
 
 # 验证集路径
-VAL_IMG="/root/autodl-tmp/BCSS/BCSS_224/val"
-VAL_MASK="/root/autodl-tmp/BCSS/BCSS_224/val_mask_binary"
+VAL_IMG="/root/autodl-fs/QaTa-COV19-v2/Test Set/Images"
+VAL_MASK="/root/autodl-fs/QaTa-COV19-v2/Test Set/Ground-truths"
 
-SAVE_PATH="/root/SAM2-UNet-main/output14_checkpoints"
+SAVE_PATH="/root/SAM2-UNet-main/output1_checkpoints"
 # [恢复] CSV 日志保存路径
-LOG_PATH="/root/SAM2-UNet-main/output14_checkpoints/train_log.csv"
+LOG_PATH="/root/SAM2-UNet-main/output1_checkpoints/train_log.csv"
 
 CUDA_VISIBLE_DEVICES="0" \
 python train.py \
@@ -28,4 +28,4 @@ python train.py \
     --epoch 25 \
     --lr 0.0001 \
     --batch_size 64 \
-    --wandb_project "BCSS-SAM2-UNet-Binary"
+    --wandb_project "Covid-19"

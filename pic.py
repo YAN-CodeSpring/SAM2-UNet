@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 
 # -------------------------- 配置参数 --------------------------
 # 文件夹路径
-img_path = "/root/autodl-tmp/BCSS/BCSS_224/val"    # 原图路径
-gt_path = "/root/autodl-tmp/BCSS/BCSS_224/val_mask_binary" # 真实掩码路径
-pred_path = "/root/autodl-tmp/BCSS/output14_predict_results/" # 预测掩码路径
+img_path = "/root/autodl-fs/QaTa-COV19-v2/Test Set/Images"    # 原图路径
+gt_path = "/root/autodl-fs/QaTa-COV19-v2/Test Set/Ground-truths" # 真实掩码路径
+pred_path = "/root/autodl-tmp/COVID/output1_predict_results/" # 预测掩码路径
 
 # 可视化配置
 mask_color = (255, 0, 0)  # 掩码叠加颜色（红色）

@@ -37,7 +37,8 @@ mask_root = args.gt_path
 if not os.path.exists(pred_root) or not os.path.exists(mask_root):
     raise FileNotFoundError(f"路径不存在: \n{pred_root}\n{mask_root}")
 
-mask_name_list = sorted([f for f in os.listdir(mask_root) if f.endswith('.png') or f.endswith('.jpg')])
+# ========== 第一处修改：只筛选mask_开头的图片文件 ==========
+mask_name_list = sorted([f for f in os.listdir(mask_root) if (f.startswith('mask_') and (f.endswith('.png') or f.endswith('.jpg')))])
 
 # 统计计数器
 error_count = 0
@@ -53,12 +54,13 @@ for i, mask_name in enumerate(mask_name_list):
     print(f"[{i}] Processing {mask_name}...")
     
     mask_path = os.path.join(mask_root, mask_name)
-    pred_name_png = mask_name.rsplit('.', 1)[0] + '.png'
+    # ========== 第二处修改：去掉mask_前缀后匹配预测文件 ==========
+    pred_name_png = mask_name.replace('mask_', '').rsplit('.', 1)[0] + '.png'
     pred_path = os.path.join(pred_root, pred_name_png)
     
     # 1. 检查预测文件
     if not os.path.exists(pred_path):
-        pred_path = os.path.join(pred_root, mask_name) # 尝试原名
+        pred_path = os.path.join(pred_root, mask_name.replace('mask_', '')) # 尝试原名（去掉mask_）
         if not os.path.exists(pred_path):
             print(f"❌ 预测文件不存在：{pred_path}")
             error_count += 1
@@ -80,9 +82,9 @@ for i, mask_name in enumerate(mask_name_list):
         pred_raw = cv2.resize(pred_raw, (mask_raw.shape[1], mask_raw.shape[0]), interpolation=cv2.INTER_NEAREST)
 
     # 4. 【关键修正】二值化逻辑
-    # 只要大于0，就认为是前景(255)。这样兼容 0/1 和 0/255 两种情况
-    mask = (mask_raw > 0).astype(np.uint8) * 255
-    pred = (pred_raw > 0).astype(np.uint8) * 255
+    # 修改建议
+    mask = (mask_raw > 127).astype(np.uint8) * 255
+    pred = (pred_raw > 127).astype(np.uint8) * 255
     
     # 5. 打印详细信息 (复刻你要求的格式)
     mask_pixels = np.count_nonzero(mask)
@@ -156,5 +158,8 @@ print(f"S_measure:    {sm:.4f}")
 print(f"wF_measure:   {wfm:.4f}")
 print(f"F_beta(adp):  {fm['adp']:.4f}")
 print(f"E_measure:    {em['curve'].mean():.4f}")
+print(f"E_measure(mean): {em['curve'].mean():.4f}")
+print(f"E_measure(max):  {em['curve'].max():.4f}")
+print(f"E_measure(adp):  {em['adp']:.4f}")
 print(f"MAE:          {mae:.4f}")
 print(f"{'='*50}\n")

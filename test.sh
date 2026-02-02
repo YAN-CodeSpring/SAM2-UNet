@@ -1,6 +1,6 @@
 CUDA_VISIBLE_DEVICES="0" \
 python test.py \
---checkpoint "/root/SAM2-UNet-main/output14_checkpoints/best_model.pth" \
---test_image_path "/root/autodl-tmp/BCSS/BCSS_224/val" \
---test_gt_path "/root/autodl-tmp/BCSS/BCSS_224/val_mask_binary" \
---save_path "/root/autodl-tmp/BCSS/output14_predict_results/" \
+--checkpoint "/root/SAM2-UNet-main/output1_checkpoints/best_model.pth" \
+--test_image_path "/root/autodl-fs/QaTa-COV19-v2/Test Set/Images" \
+--test_gt_path "/root/autodl-fs/QaTa-COV19-v2/Test Set/Ground-truths" \
+--save_path "/root/autodl-tmp/COVID/output1_predict_results/" \

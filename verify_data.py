@@ -15,19 +15,29 @@ def verify_dataset(img_dir, mask_dir, output_txt):
     print(f"正在扫描图片: {img_dir} ...")
     print(f"正在扫描Mask: {mask_dir} ...")
 
-    # 2. 支持的图片格式 (可以根据需要添加)
+    # 2. 支持的图片格式
     valid_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
 
-    # 3. 获取文件列表 (保存完整文件名)
-    # 过滤掉非图片文件（如 .DS_Store 或 .txt）
+    # 3. 获取文件列表
     img_files = [f for f in os.listdir(img_dir) if Path(f).suffix.lower() in valid_exts]
     mask_files = [f for f in os.listdir(mask_dir) if Path(f).suffix.lower() in valid_exts]
 
-    # 4. 建立映射：文件名(不含后缀) -> 完整文件名
-    # 例如: 'covid_19' -> 'covid_19.png'
-    # 这样即使图片是.jpg，mask是.png，也能匹配上
+    # 4. 建立映射：核心文件名 -> 完整文件名
+    
+    # 图片处理：直接用文件名(无后缀)作为 Key
     img_map = {Path(f).stem: f for f in img_files}
-    mask_map = {Path(f).stem: f for f in mask_files}
+    
+    # Mask处理：【核心修改】去除 'mask_' 前缀
+    mask_map = {}
+    for f in mask_files:
+        stem = Path(f).stem
+        # 如果文件名以 mask_ 开头，则切掉前5个字符
+        if stem.startswith("mask_"):
+            core_name = stem[5:]  # 去掉 'mask_'
+        else:
+            core_name = stem      # 假如有的没有前缀，就保持原样
+        
+        mask_map[core_name] = f
 
     img_stems = set(img_map.keys())
     mask_stems = set(mask_map.keys())
@@ -52,10 +62,6 @@ def verify_dataset(img_dir, mask_dir, output_txt):
         f.write(f"Mask总数: {len(mask_files)}\n")
         f.write(f"✅ 完美匹配对数: {len(matches)}\n")
         
-        # 检查重复文件名（防止同一个文件夹里有同名不同后缀的文件，导致混淆）
-        if len(img_files) != len(img_stems):
-            f.write(f"⚠️ 警告: 图片文件夹中存在同名不同后缀的文件 (实际文件{len(img_files)} != 唯一文件名{len(img_stems)})\n")
-
         f.write("\n" + "-" * 20 + " 详细错误 " + "-" * 20 + "\n")
 
         has_error = False
@@ -64,25 +70,36 @@ def verify_dataset(img_dir, mask_dir, output_txt):
         if missing_masks:
             has_error = True
             f.write(f"\n❌ 发现 {len(missing_masks)} 张图片缺少对应的Mask:\n")
+            # 显示前10个例子，防止刷屏
+            count = 0
             for stem in sorted(list(missing_masks)):
-                f.write(f"  [图片存在] {img_map[stem]}  -->  [Mask缺失]\n")
+                f.write(f"  [图片: {img_map[stem]}] --> 找不到对应Mask (预期: mask_{stem}.png)\n")
+                count += 1
+                if count >= 20:
+                    f.write(f"  ... 以及其他 {len(missing_masks)-20} 张 ...\n")
+                    break
         
         # 记录有Mask没图的情况
         if orphaned_masks:
             has_error = True
-            f.write(f"\n⚠️ 发现 {len(orphaned_masks)} 个Mask缺少对应的图片 (可能是多余文件):\n")
+            f.write(f"\n⚠️ 发现 {len(orphaned_masks)} 个Mask缺少对应的图片:\n")
+            count = 0
             for stem in sorted(list(orphaned_masks)):
-                f.write(f"  [图片缺失]  <--  [Mask存在] {mask_map[stem]}\n")
+                f.write(f"  [Mask: {mask_map[stem]}] --> 找不到对应图片 (预期: {stem}.png/jpg)\n")
+                count += 1
+                if count >= 20:
+                    f.write(f"  ... 以及其他 {len(orphaned_masks)-20} 个 ...\n")
+                    break
 
         if not has_error:
-            f.write("\n✨ 恭喜！所有图片和Mask一一对应，未发现问题。\n")
+            f.write("\n✨ 恭喜！所有图片和Mask一一对应（已自动处理 mask_ 前缀）。\n")
 
     print("-" * 50)
-    print(f"校验完成！")
+    print(f"校验完成！(已处理 'mask_' 前缀)")
     if len(matches) > 0 and not missing_masks:
         print(f"✅ 成功匹配 {len(matches)} 对数据。")
     else:
-        print(f"❌ 发现问题，请查看报告。")
+        print(f"❌ 发现问题，请打开txt查看详细报告。")
     print(f"📄 详细结果已保存在: {output_txt}")
     print("-" * 50)
 
