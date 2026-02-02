@@ -31,6 +31,25 @@ parser.add_argument("--weight_decay", default=5e-4, type=float)
 parser.add_argument("--wandb_project", type=str, default="BCSS-SAM2-UNet-Train")
 args = parser.parse_args()
 
+# 新增：设置随机数种子的函数
+def set_random_seed(seed):
+    """设置所有库的随机数种子，保证实验可复现"""
+    # Python原生随机数
+    random.seed(seed)
+    # Numpy随机数
+    np.random.seed(seed)
+    # PyTorch CPU随机数
+    torch.manual_seed(seed)
+    # PyTorch CUDA随机数（单GPU）
+    torch.cuda.manual_seed(seed)
+    # PyTorch CUDA随机数（多GPU）
+    torch.cuda.manual_seed_all(seed)
+    # 确保CUDA卷积操作的确定性
+    torch.backends.cudnn.deterministic = True
+    # 关闭CUDA卷积的自动优化（牺牲一点速度换确定性）
+    torch.backends.cudnn.benchmark = False
+    # 设置PyTorch的随机数生成器状态
+    torch.manual_seed(seed)
 
 def denormalize(img_tensor):
     mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(img_tensor.device)
@@ -49,10 +68,12 @@ def structure_loss(pred, mask):
     wiou = 1 - (inter + 1)/(union - inter + 1 + 1e-6)
     return (wbce + wiou).mean()
 
-
 def main(args):    
     wandb.init(project=args.wandb_project, config=args)
     device = torch.device("cuda")
+    
+    # 新增：调用种子设置函数，指定固定种子42（可自行修改）
+    set_random_seed(42)
     
     train_dataset = FullDataset(args.train_image_path, args.train_mask_path, 224, mode='train')
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8)
@@ -158,7 +179,6 @@ def main(args):
             torch.save(model.state_dict(), os.path.join(args.save_path, 'SAM2-UNet-%d.pth' % (epoch + 1)))
 
     wandb.finish()
-
 
 if __name__ == "__main__":
     main(args)

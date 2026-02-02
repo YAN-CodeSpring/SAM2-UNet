@@ -1,0 +1,32 @@
+同一轮结果，但是用的是第25轮的pth文件进行验证和评估的。
+【比不过baseline】
+
+### test.sh中：
+
+--checkpoint "/root/SAM2-UNet-main/output2_checkpoints/SAM2-UNet-25.pth" \
+
+--save_path "/root/autodl-tmp/COVID/output2_1_predict_results/" \
+
+结果：
+
+==================== 异常统计 ====================
+读取失败: 0
+尺寸修复: 0
+Mask全黑: 0
+Pred全黑: 0
+双空(完美特异性): 0 (已修正)
+==================================================
+
+==================== 最终评估结果 ====================
+Dataset: COVID 19 Result 2
+mDice:        0.7848
+mIoU:         0.6867
+S_measure:    0.8154
+wF_measure:   0.7500
+F_beta(adp):  0.7631
+E_measure:    0.8990
+E_measure(mean): 0.8990
+E_measure(max):  0.9015
+E_measure(adp):  0.9015
+MAE:          0.0333
+==================================================

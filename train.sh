@@ -12,9 +12,9 @@ TRAIN_MASK="/root/autodl-fs/QaTa-COV19-v2/Train Set/Ground-truths"
 VAL_IMG="/root/autodl-fs/QaTa-COV19-v2/Test Set/Images"
 VAL_MASK="/root/autodl-fs/QaTa-COV19-v2/Test Set/Ground-truths"
 
-SAVE_PATH="/root/SAM2-UNet-main/output1_checkpoints"
+SAVE_PATH="/root/SAM2-UNet-main/output5_checkpoints"
 # [恢复] CSV 日志保存路径
-LOG_PATH="/root/SAM2-UNet-main/output1_checkpoints/train_log.csv"
+LOG_PATH="/root/SAM2-UNet-main/output5_checkpoints/train_log.csv"
 
 CUDA_VISIBLE_DEVICES="0" \
 python train.py \
