@@ -1,165 +1,105 @@
 import os
 import cv2
-import py_sod_metrics
 import argparse
 import numpy as np
+from sklearn.metrics import confusion_matrix
 
-# ==================== 1. 初始化指标 ====================
-FM = py_sod_metrics.Fmeasure()
-WFM = py_sod_metrics.WeightedFmeasure()
-SM = py_sod_metrics.Smeasure()
-EM = py_sod_metrics.Emeasure()
-MAE = py_sod_metrics.MAE()
+def calculate_metrics(conf_matrix):
+    """
+    根据混淆矩阵计算每一类的 Dice, IoU, Precision, Recall
+    """
+    # conf_matrix: [n_classes, n_classes]
+    # 行代表真值 (GT)，列代表预测 (Pred)
+    n_classes = conf_matrix.shape[0]
+    ious = []
+    dices = []
+    precisions = []
+    recalls = []
+
+    for i in range(n_classes):
+        tp = conf_matrix[i, i]
+        fp = conf_matrix[:, i].sum() - tp
+        fn = conf_matrix[i, :].sum() - tp
+        
+        # IoU = TP / (TP + FP + FN)
+        iou = tp / (tp + fp + fn + 1e-6)
+        # Dice = 2 * TP / (2 * TP + FP + FN)
+        dice = 2 * tp / (2 * tp + fp + fn + 1e-6)
+        # Precision = TP / (TP + FP)
+        precision = tp / (tp + fp + 1e-6)
+        # Recall = TP / (TP + FN)
+        recall = tp / (tp + fn + 1e-6)
+
+        ious.append(iou)
+        dices.append(dice)
+        precisions.append(precision)
+        recalls.append(recall)
+
+    return ious, dices, precisions, recalls
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset_name", type=str, required=True, help="Dataset name")
-parser.add_argument("--pred_path", type=str, required=True, help="Path to predictions")
-parser.add_argument("--gt_path", type=str, required=True, help="Path to GT masks")
+parser.add_argument("--dataset_name", type=str, required=True)
+parser.add_argument("--pred_path", type=str, required=True)
+parser.add_argument("--gt_path", type=str, required=True)
 args = parser.parse_args()
 
-# 配置 FmeasureV2
-sample_gray = dict(with_adaptive=True, with_dynamic=True)
-FMv2 = py_sod_metrics.FmeasureV2(
-    metric_handlers={
-        "fm": py_sod_metrics.FmeasureHandler(**sample_gray, beta=0.3),
-        "f1": py_sod_metrics.FmeasureHandler(**sample_gray, beta=1),
-        "iou": py_sod_metrics.IOUHandler(**sample_gray),
-        "dice": py_sod_metrics.DICEHandler(**sample_gray),
-        "spec": py_sod_metrics.SpecificityHandler(**sample_gray),
-        "ber": py_sod_metrics.BERHandler(**sample_gray),
-        "oa": py_sod_metrics.OverallAccuracyHandler(**sample_gray),
-    }
-)
+# 三分类映射映射 (必须与 dataset.py 一致)
+# 0: 背景, 1: 良性 (128), 2: 恶性 (255)
+label_values = [0, 128, 255]
+class_names = ["Background", "Benign", "Malignant"]
 
-pred_root = args.pred_path
-mask_root = args.gt_path
+mask_name_list = sorted([f for f in os.listdir(args.gt_path) if f.endswith(('.png', '.jpg'))])
 
-if not os.path.exists(pred_root) or not os.path.exists(mask_root):
-    raise FileNotFoundError(f"路径不存在: \n{pred_root}\n{mask_root}")
+# 初始化全局混淆矩阵
+total_conf_matrix = np.zeros((3, 3))
 
-# ========== 第一处修改：只筛选mask_开头的图片文件 ==========
-mask_name_list = sorted([f for f in os.listdir(mask_root) if (f.startswith('mask_') and (f.endswith('.png') or f.endswith('.jpg')))])
+print(f"=======开始多分类评估: {args.dataset_name}=======")
 
-# 统计计数器
-error_count = 0
-empty_mask_count = 0
-empty_pred_count = 0
-double_empty_count = 0
-size_mismatch_count = 0
-
-print(f"🚀 开始评估: {args.dataset_name}")
-print(f"总文件数: {len(mask_name_list)}\n")
-
-for i, mask_name in enumerate(mask_name_list):
-    print(f"[{i}] Processing {mask_name}...")
+for mask_name in mask_name_list:
+    mask_path = os.path.join(args.gt_path, mask_name)
+    # 自动匹配预测文件名 (假设 test.py 保存的文件名与 mask 一致)
+    pred_path = os.path.join(args.pred_path, mask_name)
     
-    mask_path = os.path.join(mask_root, mask_name)
-    # ========== 第二处修改：去掉mask_前缀后匹配预测文件 ==========
-    pred_name_png = mask_name.replace('mask_', '').rsplit('.', 1)[0] + '.png'
-    pred_path = os.path.join(pred_root, pred_name_png)
-    
-    # 1. 检查预测文件
     if not os.path.exists(pred_path):
-        pred_path = os.path.join(pred_root, mask_name.replace('mask_', '')) # 尝试原名（去掉mask_）
-        if not os.path.exists(pred_path):
-            print(f"❌ 预测文件不存在：{pred_path}")
-            error_count += 1
-            continue
+        continue
 
-    # 2. 读取图像 (保留原始值用于打印范围)
     mask_raw = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
     pred_raw = cv2.imread(pred_path, cv2.IMREAD_GRAYSCALE)
 
-    if mask_raw is None or pred_raw is None:
-        print(f"❌ 读取失败")
-        error_count += 1
-        continue
-        
-    # 3. 尺寸修复
+    # 尺寸对齐
     if mask_raw.shape != pred_raw.shape:
-        # print(f"⚠️ 尺寸不匹配: Mask{mask_raw.shape} vs Pred{pred_raw.shape} (已修正)")
-        size_mismatch_count += 1
         pred_raw = cv2.resize(pred_raw, (mask_raw.shape[1], mask_raw.shape[0]), interpolation=cv2.INTER_NEAREST)
 
-    # 4. 【关键修正】二值化逻辑
-    # 修改建议
-    mask = (mask_raw > 127).astype(np.uint8) * 255
-    pred = (pred_raw > 127).astype(np.uint8) * 255
-    
-    # 5. 打印详细信息 (复刻你要求的格式)
-    mask_pixels = np.count_nonzero(mask)
-    pred_pixels = np.count_nonzero(pred)
-    
-    # 打印原始值的范围，帮你确认Mask是不是0-1
-    print(f"mask像素值范围：[{mask_raw.min()}, {mask_raw.max()}]，非零像素数：{mask_pixels}")
-    print(f"pred像素值范围：[{pred_raw.min()}, {pred_raw.max()}]，非零像素数：{pred_pixels}")
+    # 将像素值映射为类别索引 0, 1, 2
+    # 逻辑：最接近哪个值就归为哪一类
+    def quantize_labels(img):
+        output = np.zeros_like(img)
+        output[img < 64] = 0
+        output[(img >= 64) & (img < 192)] = 1
+        output[img >= 192] = 2
+        return output
 
-    if mask_pixels == 0:
-        print(f"⚠️ mask全黑（无目标）")
-        empty_mask_count += 1
-    if pred_pixels == 0:
-        print(f"⚠️ pred全黑（无预测目标）")
-        empty_pred_count += 1
+    mask_idx = quantize_labels(mask_raw).flatten()
+    pred_idx = quantize_labels(pred_raw).flatten()
 
-    # 6. 计算单张 IoU 用于观察
-    intersection = np.logical_and(mask > 0, pred > 0).sum()
-    union = np.logical_or(mask > 0, pred > 0).sum()
-    
-    if union == 0:
-        iou_single = 1.000 # 双空满分
-        print(f"单张图IoU：{iou_single:.3f} (双空完美)")
-    else:
-        iou_single = intersection / union
-        print(f"单张图IoU：{iou_single:.3f}")
-    
-    print("-" * 30)
+    # 计算单张图的混淆矩阵并累加
+    cm = confusion_matrix(mask_idx, pred_idx, labels=[0, 1, 2])
+    total_conf_matrix += cm
 
-    # ================= 核心：双空修正逻辑 =================
-    if mask_pixels == 0 and pred_pixels == 0:
-        double_empty_count += 1
-        # 制造全白图送入库计算，骗取满分
-        process_mask = np.ones_like(mask) * 255
-        process_pred = np.ones_like(pred) * 255
-    else:
-        process_mask = mask
-        process_pred = pred
+# 计算最终指标
+ious, dices, precisions, recalls = calculate_metrics(total_conf_matrix)
 
-    # 7. Step 指标
-    FM.step(pred=process_pred, gt=process_mask)
-    WFM.step(pred=process_pred, gt=process_mask)
-    SM.step(pred=process_pred, gt=process_mask)
-    EM.step(pred=process_pred, gt=process_mask)
-    MAE.step(pred=process_pred, gt=process_mask)
-    FMv2.step(pred=process_pred, gt=process_mask)
+print(f"\n{'='*20} 最终评估结果 (3-Class) {'='*20}")
+print(f"{'Class':<15} | {'IoU':<10} | {'Dice':<10} | {'Precision':<10} | {'Recall':<10}")
+print("-" * 65)
 
+for i in range(3):
+    print(f"{class_names[i]:<15} | {ious[i]:.4f}     | {dices[i]:.4f}     | {precisions[i]:.4f}        | {recalls[i]:.4f}")
 
-# ==================== 最终统计 ====================
-print(f"\n{'='*20} 异常统计 {'='*20}")
-print(f"读取失败: {error_count}")
-print(f"尺寸修复: {size_mismatch_count}")
-print(f"Mask全黑: {empty_mask_count}")
-print(f"Pred全黑: {empty_pred_count}")
-print(f"双空(完美特异性): {double_empty_count} (已修正)")
-print(f"{'='*50}")
-
-# 获取最终结果
-fm = FM.get_results()["fm"]
-wfm = WFM.get_results()["wfm"]
-sm = SM.get_results()["sm"]
-em = EM.get_results()["em"]
-mae = MAE.get_results()["mae"]
-fmv2 = FMv2.get_results()
-
-print(f"\n{'='*20} 最终评估结果 {'='*20}")
-print(f"Dataset: {args.dataset_name}")
-print(f"mDice:        {fmv2['dice']['dynamic'].mean():.4f}")
-print(f"mIoU:         {fmv2['iou']['dynamic'].mean():.4f}")
-print(f"S_measure:    {sm:.4f}")
-print(f"wF_measure:   {wfm:.4f}")
-print(f"F_beta(adp):  {fm['adp']:.4f}")
-print(f"E_measure:    {em['curve'].mean():.4f}")
-print(f"E_measure(mean): {em['curve'].mean():.4f}")
-print(f"E_measure(max):  {em['curve'].max():.4f}")
-print(f"E_measure(adp):  {em['adp']:.4f}")
-print(f"MAE:          {mae:.4f}")
-print(f"{'='*50}\n")
+print("-" * 65)
+# 通常医学影像中，我们更关心肿瘤类（1和2）的平均值
+mIoU = np.mean(ious[1:]) 
+mDice = np.mean(dices[1:])
+print(f"Tumor Mean IoU (Benign+Malignant): {mIoU:.4f}")
+print(f"Tumor Mean Dice (Benign+Malignant): {mDice:.4f}")
+print(f"{'='*60}\n")

@@ -9,61 +9,66 @@ from dataset import TestDataset
 
 # 1. 参数解析
 parser = argparse.ArgumentParser()
-parser.add_argument("--checkpoint", type=str, required=True,
-                help="path to the checkpoint of sam2-unet")
-parser.add_argument("--test_image_path", type=str, required=True, 
-                help="path to the image files for testing")
-parser.add_argument("--test_gt_path", type=str, required=True,
-                help="path to the mask files for testing")
-parser.add_argument("--save_path", type=str, required=True,
-                help="path to save the predicted masks")
+parser.add_argument("--checkpoint", type=str, required=True, help="path to your best_model.pth")
+parser.add_argument("--test_image_path", type=str, required=True)
+parser.add_argument("--test_gt_path", type=str, required=True)
+parser.add_argument("--save_path", type=str, required=True)
 args = parser.parse_args()
 
-# 2. 设备与数据加载
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 这里输入 224，TestDataset 会把 self.size 设为 224
-test_loader = TestDataset(args.test_image_path, args.test_gt_path, 224)
+# 【适配 1】尺寸统一为 512
+test_loader = TestDataset(args.test_image_path, args.test_gt_path, 512)
 
-# 3. 模型加载
+# 【适配 2】模型加载（不再需要 SAM2 原始权重路径，直接初始化结构）
 model = SAM2UNet().to(device)
 
 if os.path.exists(args.checkpoint):
+    # 加载你自己训练出的 best_model.pth
     state_dict = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(state_dict, strict=True)
-    print(f"✅ 成功加载权重: {args.checkpoint}")
+    print(f"✅ 成功加载自定义训练权重: {args.checkpoint}")
 else:
     raise FileNotFoundError(f"❌ 找不到权重文件: {args.checkpoint}")
 
 model.eval()
 os.makedirs(args.save_path, exist_ok=True)
 
-# 二值化阈值
-BIN_THRESHOLD = 0.5
+print(f"🚀 开始推理... 总计: {test_loader.len} 张图片")
 
-# 【修改点 1】这里要用 .len (图片数量)，不要用 .size (分辨率)
-print(f"🚀 开始测试... 总计发现 {test_loader.len} 张待测试图片")
+# 【适配 3】三分类像素映射表
+# 索引 0 (背景) -> 0
+# 索引 1 (良性) -> 128
+# 索引 2 (恶性) -> 255
+class_to_pixel = {0: 0, 1: 128, 2: 255}
 
-# 【修改点 2】循环次数也要改用 .len
 for i in range(test_loader.len):
     with torch.no_grad():
         image, gt, name = test_loader.load_data()
         
-        gt = np.asarray(gt, np.float32)
+        # gt 仅用于获取原始尺寸进行插值回传
+        orig_h, orig_w = gt.shape
         image = image.to(device)
         
+        # 推理得到三个尺度，我们取最终输出 res
         res, _, _ = model(image)
         
-        res = F.interpolate(res, size=gt.shape, mode='bilinear', align_corners=False)
-        res = torch.sigmoid(res).data.cpu().numpy().squeeze()
-        res = (res >= BIN_THRESHOLD).astype(np.uint8)
-        res = res * 255
+        # 【核心修改】多分类处理逻辑
+        # 1. 插值回到原始图像尺寸
+        res = F.interpolate(res, size=(orig_h, orig_w), mode='bilinear', align_corners=False)
+        
+        # 2. 从 [1, 3, H, W] 中提取概率最大的类别索引 [H, W]
+        res = torch.argmax(res, dim=1).squeeze().cpu().numpy().astype(np.uint8)
+        
+        # 3. 将索引 (0, 1, 2) 映射回可视化像素 (0, 128, 255)
+        res_colored = np.zeros_like(res, dtype=np.uint8)
+        for cls_idx, pixel_val in class_to_pixel.items():
+            res_colored[res == cls_idx] = pixel_val
         
         if (i + 1) % 50 == 0:
-            # 【修改点 3】进度条分母也修正为 .len
-            print(f"[{i+1}/{test_loader.len}] Processing {name}...")
+            print(f"[{i+1}/{test_loader.len}] 正在处理: {name}...")
         
         save_name = os.path.splitext(name)[0] + ".png"
-        imageio.imsave(os.path.join(args.save_path, save_name), res)
+        imageio.imsave(os.path.join(args.save_path, save_name), res_colored)
 
-print(f"🎉 测试完成！结果已保存在: {args.save_path}")
+print(f"🎉 推理完成！预测结果（三色图）已保存至: {args.save_path}")

@@ -1,0 +1,10 @@
+Running test on device: cuda
+Input Skip Shape:    torch.Size([64, 128, 56, 56])
+Input Decoder Shape: torch.Size([64, 128, 56, 56])
+------------------------------
+Output Shape:        torch.Size([64, 128, 56, 56])
+------------------------------
+✅ 测试成功！CATM 模块输出尺寸正确，可以直接替换 Concat。
+Current GPU Memory Usage: 22453.10 MB
+
+[进阶提示] 如果 SAM2 Encoder 输出通道是 256，而 Decoder 是 128 怎么办？

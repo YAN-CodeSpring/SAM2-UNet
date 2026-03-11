@@ -8,13 +8,13 @@ import matplotlib.pyplot as plt
 # 文件夹路径
 img_path = "/root/autodl-fs/QaTa-COV19-v2/Test Set/Images"    # 原图路径
 gt_path = "/root/autodl-fs/QaTa-COV19-v2/Test Set/Ground-truths" # 真实掩码路径
-pred_path = "/root/autodl-tmp/COVID/output1_predict_results/" # 预测掩码路径
+pred_path = "/root/autodl-tmp/COVID/output6_predict_results/" # 预测掩码路径
 
 # 可视化配置
 gt_color = (0, 255, 0)    # GT掩码叠加颜色（绿色，RGB格式）
 pred_color = (255, 0, 0)  # Pred掩码叠加颜色（红色，RGB格式）
 alpha = 0.5               # 透明度（半透明）
-save_path = "segmentation_vis_random.png"  # 保存路径
+save_path = "segmentation_vis_random_2.png"  # 保存路径
 figsize = (24, 6)         # 调整尺寸适配4列布局
 
 # -------------------------- 核心函数 --------------------------

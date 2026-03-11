@@ -1,6 +1,4 @@
 python eval.py \
---dataset_name "COVID 19 Result 5" \
---pred_path "/root/autodl-tmp/COVID/output5_predict_results/" \
---gt_path "/root/autodl-fs/QaTa-COV19-v2/Test Set/Ground-truths"
-
-
+--dataset_name "BUSI-BUSUC-SAM2UNet-1" \
+--pred_path "/root/SAM2-UNet-main/output1_checkpoints/test_results_visual/" \
+--gt_path "/root/autodl-fs/New_data/test/masks/"
