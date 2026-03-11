@@ -1,0 +1,14 @@
+==================== 最终评估结果 (3-Class) ====================
+Class           | IoU        | Dice       | Precision  | Recall    
+-----------------------------------------------------------------
+Background      | 0.9500     | 0.9743     | 0.9854        | 0.9635
+Benign          | 0.5617     | 0.7194     | 0.6562        | 0.7960
+Malignant       | 0.5505     | 0.7101     | 0.6601        | 0.7683
+-----------------------------------------------------------------
+Tumor Mean IoU (Benign+Malignant): 0.5561
+Tumor Mean Dice (Benign+Malignant): 0.7147
+============================================================
+
+We use the random rotation.
+We use the Dice as the rule of update the pt files.
+We improved the csv printing function.

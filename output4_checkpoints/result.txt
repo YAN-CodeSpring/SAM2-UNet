@@ -1,0 +1,19 @@
+=======开始多分类评估: BUSI-BUSUC-SAM2UNet-4=======
+
+==================== 最终评估结果 (3-Class) ====================
+Class           | IoU        | Dice       | Precision  | Recall    
+-----------------------------------------------------------------
+Background      | 0.9487     | 0.9737     | 0.9864        | 0.9613
+Benign          | 0.5515     | 0.7110     | 0.6675        | 0.7606
+Malignant       | 0.5122     | 0.6774     | 0.5984        | 0.7806
+-----------------------------------------------------------------
+Tumor Mean IoU (Benign+Malignant): 0.5319
+Tumor Mean Dice (Benign+Malignant): 0.6942
+============================================================
+
+
+--epoch 20 \
+--lr 0.0008 \
+--batch_size 12
+
+We have implmented the random rotation of 15 degrees.
