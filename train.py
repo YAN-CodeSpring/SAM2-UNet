@@ -14,7 +14,8 @@ import wandb
 from dataset import FullDataset
 from SAM2UNet import SAM2UNet
 
-parser = argparse.ArgumentParser("SAM2-UNet-3Class")
+# ==================== 参数解析 ====================
+parser = argparse.ArgumentParser("SAM2-UNet-3Class-Baseline")
 parser.add_argument("--hiera_path", type=str, required=True)
 parser.add_argument("--train_image_path", type=str, required=True)
 parser.add_argument("--train_mask_path", type=str, required=True)
@@ -22,8 +23,8 @@ parser.add_argument("--val_image_path", type=str, required=True)
 parser.add_argument("--val_mask_path", type=str, required=True)
 parser.add_argument('--save_path', type=str, required=True)
 parser.add_argument('--log_path', type=str, default="train_log.csv")
-parser.add_argument("--epoch", type=int, default=25) # 建议25
-parser.add_argument("--lr", type=float, default=0.001)
+parser.add_argument("--epoch", type=int, default=25) 
+parser.add_argument("--lr", type=float, default=0.0001)
 parser.add_argument("--batch_size", default=12, type=int)
 parser.add_argument("--weight_decay", default=5e-4, type=float)
 parser.add_argument("--wandb_project", type=str, default="Breast-Cancer-3Class")
@@ -42,33 +43,33 @@ def denormalize(img_tensor):
     std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1).to(img_tensor.device)
     return torch.clamp(img_tensor * std + mean, 0, 1)
 
-def structure_loss_multiclass(pred, mask):
-    """
-    针对三分类的深度学习损失函数
-    pred: [B, 3, 512, 512]
-    mask: [B, 1, 512, 512] 映射值为 0, 1, 2
-    """
+# ==================== 复合损失函数 ====================
+def optimized_structure_loss(pred, mask):
     target = mask.squeeze(1).long()
-    
-    # 1. CrossEntropy Loss
-    ce_loss = F.cross_entropy(pred, target)
-    
-    # 2. Multiclass IoU Loss
+    weights = torch.tensor([0.2, 1.0, 1.2]).to(pred.device)
+    ce_loss = F.cross_entropy(pred, target, weight=weights)
+
     pred_soft = F.softmax(pred, dim=1)
     target_one_hot = F.one_hot(target, num_classes=3).permute(0, 3, 1, 2).float()
     
-    inter = (pred_soft * target_one_hot).sum(dim=(2, 3))
-    union = (pred_soft + target_one_hot).sum(dim=(2, 3))
-    iou_loss = 1 - (inter + 1.0) / (union - inter + 1.0 + 1e-6)
+    dice_loss = 0
+    foreground_classes = [1, 2] 
+    for cls in foreground_classes:
+        p = pred_soft[:, cls, :, :]
+        g = target_one_hot[:, cls, :, :]
+        intersection = (p * g).sum(dim=(1, 2))
+        union = p.sum(dim=(1, 2)) + g.sum(dim=(1, 2))
+        dice = (2. * intersection + 1.0) / (union + 1.0 + 1e-7)
+        dice_loss += (1 - dice).mean()
     
-    return ce_loss + iou_loss.mean()
+    return ce_loss + (dice_loss / len(foreground_classes))
 
+# ==================== 主训练逻辑 ====================
 def main(args):    
     set_random_seed(42)
     wandb.init(project=args.wandb_project, config=args)
-    device = torch.device("cuda")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # 加载数据集，尺寸改为 512
     train_loader = DataLoader(FullDataset(args.train_image_path, args.train_mask_path, 512, mode='train'), 
                               batch_size=args.batch_size, shuffle=True, num_workers=8)
     val_loader = DataLoader(FullDataset(args.val_image_path, args.val_mask_path, 512, mode='val'), 
@@ -76,7 +77,6 @@ def main(args):
     
     model = SAM2UNet(args.hiera_path).to(device)
     
-    # 只为带有 Adapter 的层和 Decoder 开启梯度 (遵循原模型冻结 Encoder Trunk 的逻辑)
     optimizer = opt.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = CosineAnnealingLR(optimizer, args.epoch, eta_min=1.0e-7)
     
@@ -87,48 +87,51 @@ def main(args):
     best_loss = float('inf')
 
     for epoch in range(args.epoch):
+        # --- Training Phase ---
         model.train()
         train_loss = 0.0
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epoch} [Train]")
-        for batch in pbar:
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epoch} [Train]")
+        for batch in train_pbar:
             x, target = batch['image'].to(device), batch['label'].to(device)
             optimizer.zero_grad()
-            
-            # 模型返回 out, out1, out2
             out, out1, out2 = model(x)
             
-            # 多尺度深监督损失
-            loss = structure_loss_multiclass(out, target) + \
-                   structure_loss_multiclass(out1, target) + \
-                   structure_loss_multiclass(out2, target)
+            loss = optimized_structure_loss(out, target) + \
+                   0.4 * optimized_structure_loss(out1, target) + \
+                   0.4 * optimized_structure_loss(out2, target)
             
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
-            pbar.set_postfix({'loss': f"{loss.item():.4f}"})
+            train_pbar.set_postfix({'loss': f"{loss.item():.4f}"})
 
-        # 验证阶段
+        # --- Validation Phase ---
         model.eval()
         val_loss = 0.0
+        val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epoch} [Val]")
         with torch.no_grad():
-            for batch in val_loader:
+            for batch in val_pbar:
                 x, target = batch['image'].to(device), batch['label'].to(device)
                 out, out1, out2 = model(x)
-                loss = structure_loss_multiclass(out, target) + \
-                       structure_loss_multiclass(out1, target) + \
-                       structure_loss_multiclass(out2, target)
-                val_loss += loss.item()
+                
+                v_loss = optimized_structure_loss(out, target) + \
+                         0.4 * optimized_structure_loss(out1, target) + \
+                         0.4 * optimized_structure_loss(out2, target)
+                val_loss += v_loss.item()
+                val_pbar.set_postfix({'v_loss': f"{v_loss.item():.4f}"})
 
         avg_train = train_loss / len(train_loader)
         avg_val = val_loss / len(val_loader)
         curr_lr = optimizer.param_groups[0]['lr']
         scheduler.step()
 
-        # Wandb 可视化逻辑
+        # 终端打印总结，让你更安心
+        print(f"\n>>> Epoch [{epoch+1}/{args.epoch}] Summary: Train Loss: {avg_train:.4f} | Val Loss: {avg_val:.4f} | LR: {curr_lr:.6f}")
+
+        # Wandb 可视化
         with torch.no_grad():
             vis_img = denormalize(x[0]).cpu().permute(1, 2, 0).numpy()
             vis_gt = target[0].cpu().squeeze().numpy().astype(np.uint8)
-            # 使用 argmax 获得预测索引 (0, 1, 2)
             vis_pred = torch.argmax(out[0], dim=0).cpu().numpy().astype(np.uint8)
             
             wandb.log({
@@ -141,7 +144,9 @@ def main(args):
 
         if avg_val < best_loss:
             best_loss = avg_val
-            torch.save(model.state_dict(), os.path.join(args.save_path, 'best_model.pth'))
+            save_name = os.path.join(args.save_path, 'best_model.pth')
+            torch.save(model.state_dict(), save_name)
+            print(f"🏆 Best model updated and saved to {save_name} (Val Loss: {best_loss:.4f})")
         
         with open(args.log_path, 'a') as f:
             f.write(f"{epoch+1},{avg_train:.6f},{avg_val:.6f},{curr_lr:.6f}\n")

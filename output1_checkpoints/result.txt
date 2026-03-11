@@ -10,3 +10,10 @@ Malignant       | 0.4681     | 0.6377     | 0.6463        | 0.6294
 Tumor Mean IoU (Benign+Malignant): 0.4782
 Tumor Mean Dice (Benign+Malignant): 0.6469
 ============================================================
+
+--epoch 20 \
+--lr 0.001 \
+--batch_size 12
+三种loss直接相加得到最终的loss，然后用train_loss作为权重保存的监督者。
+没有用随机旋转15度的数据增强方式
+可能没有用valid数据集在训练过程中交叉验证。

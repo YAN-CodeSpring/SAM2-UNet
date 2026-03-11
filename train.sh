@@ -5,8 +5,8 @@ python train.py \
 --train_mask_path "/root/autodl-fs/New_data/train/masks/" \
 --val_image_path "/root/autodl-fs/New_data/valid/images/" \
 --val_mask_path "/root/autodl-fs/New_data/valid/masks/" \
---save_path "/root/SAM2-UNet-main/output2_checkpoints" \
---log_path "/root/SAM2-UNet-main/output2_checkpoints/train_log.csv" \
+--save_path "/root/SAM2-UNet-main/output4_checkpoints" \
+--log_path "/root/SAM2-UNet-main/output4_checkpoints/train_log.csv" \
 --epoch 20 \
---lr 0.001 \
+--lr 0.0008 \
 --batch_size 12

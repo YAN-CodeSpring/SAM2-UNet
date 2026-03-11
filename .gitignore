@@ -46,3 +46,4 @@ outputs/
 
 # 忽略日志
 *.log
+*.zip
